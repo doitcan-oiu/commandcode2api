@@ -10,4 +10,8 @@ services:
       CC_CHECK_PROTOCOL_DRIFT: "${CC_CHECK_PROTOCOL_DRIFT:-true}"
     volumes:
       - ./configs/config.json:/app/configs/config.json:ro
+      - gateway-data:/app/data
     restart: unless-stopped
+
+volumes:
+  gateway-data:

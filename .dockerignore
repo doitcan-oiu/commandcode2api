@@ -1,11 +1,20 @@
-# Only local Go source and the default configuration belong in the build context.
+# Build only local Go/React source, locked dependencies and default configuration.
 *
 !Dockerfile
 !go.mod
+!go.sum
+!LICENSE
+!THIRD_PARTY_NOTICES.md
 !cmd/
 !cmd/**
 !internal/
 !internal/**
 !configs/
 !configs/config.json
+!web/
+!web/**
+web/node_modules/
+web/dist/
+web/coverage/
+web/.env*
 **/*_test.go

@@ -1,157 +1,203 @@
-# Command Code Proxy (Go)
+# Command Code Gateway (Go)
 
-A standalone Go proxy exposing OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages interfaces for Command Code. The service uses only the Go standard library and does not require Node.js, npm, or the Command Code CLI at runtime.
+A self-hosted API gateway for a single administrator and team clients. Pool multiple Command Code accounts, track balances and usage windows, and issue separate client tokens through a React, shadcn/ui, and Tailwind CSS management interface. The Go service exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages APIs.
 
-[中文说明](README_zh.md)
+[中文说明](README_zh.md) · [Upstream maintenance](docs/UPSTREAM.md)
 
-## Build and run
+The runtime is one Go executable plus built static web assets. SQLite stores accounts, quotas, settings, and request metadata. Node.js/npm is needed to build the frontend and run development tests, not to run the deployed service.
 
-Requires Go 1.26 or newer:
+## Build and first start
+
+Use Go 1.26+ and Node.js 24 with npm. From the repository root:
+
+```bash
+npm --prefix web ci
+npm --prefix web run build
+go run ./cmd/commandcode-proxy
+```
+
+Open `http://localhost:3050`. On a new data directory, create the administrator username and password directly in the setup screen; no setup token is required. Passwords must contain 8–1024 characters. Setup closes after the first administrator is created and cannot replace an existing account, including after a restart.
+
+Alternatively, set `CC_ADMIN_PASSWORD` before the first start to initialize username `admin`. This variable initializes an empty installation only; it does not reset an existing administrator password. Change passwords through the authenticated management interface.
+
+After signing in:
+
+1. Add upstream Command Code `user_...` keys under Accounts and refresh their usage. Configure labels, weights, priorities, allowed models, and account concurrency as needed.
+2. Create a downstream access token under Access tokens. Save the returned `ccg_...` value when shown; the full token is returned only on creation. Replace a lost token by creating another and disabling/deleting the old one.
+3. Configure your API client with this downstream token and the gateway base URL.
+
+To build a binary:
 
 ```bash
 go build -trimpath -o bin/commandcode-proxy ./cmd/commandcode-proxy
 ./bin/commandcode-proxy
 ```
 
-On Windows:
+On Windows, use `-o bin/commandcode-proxy.exe` and run `.\bin\commandcode-proxy.exe`. Keep `web/dist` with the deployment or set `CC_WEB_DIR` to its location. The service reads `configs/config.json` relative to its working directory; use `-config /absolute/path/config.json` for another file. Environment variables override the file.
 
-```powershell
-go build -trimpath -o bin/commandcode-proxy.exe ./cmd/commandcode-proxy
-.\bin\commandcode-proxy.exe
-```
+## Client requests
 
-The default address is `http://localhost:3050`. Run the commands above from the repository root: the proxy reads `configs/config.json` relative to the current working directory. Use `-config /path/to/config.json` to select another file, including an existing root-level configuration. Environment variables override the file. Each request must pass a Command Code key in `Authorization: Bearer user_...` or `x-api-key: user_...`. The legacy `apiKey` configuration field is accepted but unused, matching the previous request-authentication behavior.
+In gateway mode, clients use issued `ccg_...` tokens. Upstream account credentials stay on the server.
 
 ```bash
 curl http://localhost:3050/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer user_YOUR_KEY' \
+  -H 'Authorization: Bearer ccg_YOUR_ACCESS_TOKEN' \
   -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"Hello"}],"stream":true}'
 ```
 
-## Docker
+For Windows PowerShell, use `Invoke-RestMethod` to avoid native-command JSON quoting problems:
 
-The Dockerfile copies the local `go.mod` and Go sources, then runs `go build` in a Go builder image. The final `scratch` image contains the statically linked binary, CA certificates, and default configuration. It runs as UID/GID `65532:65532` and uses the binary's `-healthcheck` mode; no shell, Node.js, npm install, or remote source checkout is needed in the runtime image.
+```powershell
+$token = Read-Host "Gateway access token"
+$body = @{
+    model = "deepseek/deepseek-v4-flash"
+    messages = @(@{ role = "user"; content = "Hello" })
+} | ConvertTo-Json -Depth 10
 
-```bash
-docker build -t commandcode-proxy:local .
-docker run -d --name cc-proxy -p 3050:3050 commandcode-proxy:local
+Invoke-RestMethod -Uri "http://127.0.0.1:3050/v1/chat/completions" `
+    -Method Post -Headers @{ Authorization = "Bearer $token" } `
+    -ContentType "application/json" -Body $body
 ```
 
-The npm version notification is enabled by default, matching the original project. To disable it, add `-e CC_CHECK_PROTOCOL_DRIFT=false` before the image name. For a custom configuration, add `--mount type=bind,source=/absolute/path/config.json,target=/app/configs/config.json,readonly`. Keep credentials in the runtime configuration instead of baking them into an image. A configured log file must be writable by UID 65532; stdout is the default.
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /` | Management interface in gateway mode |
+| `/api/admin/*` | Administrator session and management API |
+| `POST /v1/chat/completions` | OpenAI Chat Completions, streaming and non-streaming |
+| `POST /v1/responses` | OpenAI Responses, streaming and non-streaming |
+| `POST /v1/messages` | Anthropic Messages, streaming and non-streaming |
+| `GET /v1/models` | Client-filtered model list from an available upstream account |
+| `GET /health` | Local process health, without credentials |
 
-Compose builds from the local source and mounts `./configs/config.json` read-only:
+OpenAI-compatible clients use `http://localhost:3050/v1`; Anthropic-compatible clients use `http://localhost:3050`. Both `Authorization: Bearer ...` and `x-api-key` are supported. Administrator sessions are separate from client tokens.
+
+## Account pooling and usage
+
+The pool filters disabled, invalid, cooling, model-incompatible, and concurrency-limited accounts, then uses the highest available account priority. Within that priority group:
+
+| Strategy | Behavior |
+| --- | --- |
+| `quota_aware` (default) | Weighted distribution adjusted by the remaining fraction of known five-hour and weekly windows |
+| `weighted_round_robin` | Smooth weighted round-robin distribution |
+| `least_inflight` | Prefer the lowest active-request load relative to account weight |
+
+Optional session affinity keeps eligible requests for a session on the same account. Unavailable accounts can be bypassed; affinity does not guarantee an upstream session survives a failover.
+
+Authentication failures mark accounts invalid. Quota/rate-limit responses trigger cooldowns; temporary upstream errors receive shorter cooldowns. Retry settings limit account switches before a response starts. Streams that have already started are not replayed against another account. If no account is available, the service returns a structured error.
+
+The usage client reads `/alpha/whoami`, `/alpha/billing/credits`, `/alpha/billing/subscriptions`, and `/alpha/usage/summary`. The UI displays identity, plan, balances, five-hour/weekly windows, resets, and cumulative usage. Automatic refresh defaults to 300 seconds, with individual and full-pool manual refreshes.
+
+Unknown numeric values remain unknown instead of becoming zero. Individual endpoint failures preserve other successful report sections. `limited` alone does not mean exhausted: scheduling uses explicit exceeded flags, known window consumption, and known balances. An expired window can be probed again. When exhaustion has no known reset time, a bounded cooldown allows refresh and recovery.
+
+Monthly plan allowances inferred from the reference project's community table are labeled estimates and do not determine request admission. Upstream balances and summaries may cover different periods; these are not a local billing ledger. The reference project's MIT notice is retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Client limits and request records
+
+Each client token supports enable/disable, expiration, allowed models, requests per minute, maximum concurrency, cumulative request allowance, and cumulative token allowance. Zero disables the corresponding `rpm`, `maxConcurrent`, `maxRequests`, or `maxTokens` limit.
+
+`maxRequests` counts accepted requests when authorization reserves them, including requests that subsequently fail. `maxTokens` is checked against the recorded total and settled using reported input/output usage when each request finishes. It is not an upfront token reservation: one request or several in-flight requests can exceed the remaining allowance, and missing upstream usage cannot be precisely counted. These are local service quotas, not prepaid financial balances. Limits do not automatically reset each billing month.
+
+The dashboard and request records show status, selected account/client, model, protocol, latency, attempts, and reported token usage. Logs store metadata rather than prompt/response bodies or full credentials. Retention defaults to 30 days with an additional 100,000-record cap. The application has one administrator account; team API clients use tokens without separate dashboard logins or roles.
+
+## Docker and persistent data
+
+The Dockerfile builds the local checkout using `COPY`: a Node stage runs `npm ci` and `npm run build`, a Go stage runs `go build`, and the final `scratch` image contains the executable, frontend assets, configuration, CA certificates, and dependency notices under `/app/licenses`. It runs as UID/GID `65532:65532`, with no Node.js, shell, or C runtime. A writable `/tmp` supports SQLite temporary files; its `-healthcheck` command probes `/health`.
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Compose accepts `PROXY_PORT` for the host port and `CC_CHECK_PROTOCOL_DRIFT` for version notifications. The container port remains 3050. Rebuild after updating Go sources.
+Compose mounts `configs/config.json` read-only and the named volume `gateway-data` at `/app/data`. Open the management page to create the initial administrator. `PROXY_PORT` sets the host port; `CC_CHECK_PROTOCOL_DRIFT=false` disables the npm notification. Rebuild after changing Go or frontend source.
 
-For a multi-platform image, substitute your registry and tag:
+Without Compose:
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t YOUR_REGISTRY/commandcode-proxy:latest --push .
+docker build -t commandcode-gateway:local .
+docker run -d --name cc-gateway -p 3050:3050 \
+  -v commandcode-gateway-data:/app/data \
+  commandcode-gateway:local
+docker logs cc-gateway
 ```
 
-The publish workflow builds the repository source for both platforms and pushes to `ghcr.io/<owner>/<repository>` on the `release` branch or a `v*` tag. `release` updates on the release branch; `latest` updates on either trigger.
+For a bind-mounted data directory, UID/GID 65532 must be able to write it. Keep credentials out of images. Put a TLS reverse proxy in front of an internet-accessible installation; preserve the original Host/Origin and forward `X-Forwarded-Proto: https` for secure session cookies. Disable SSE response buffering and allow long streaming read timeouts.
 
-## npm metadata checks and protocol version
+### Storage and backup
 
-The former JavaScript implementation did not dynamically install or execute an npm package. It fetched `https://registry.npmjs.org/command-code/latest` at startup and every 24 hours to inspect the `version` field. The Go implementation preserves this notification behavior, with a 10-second request timeout.
+`CC_DATA_DIR` contains `gateway.db` (SQLite) and `master.key`. Upstream keys are encrypted with AES-256-GCM before database storage. Client token hashes and administrator password hashes are stored instead of plaintext secrets. Account metadata and request records are also in the database; encrypting upstream keys is not whole-database encryption.
 
-- The implemented protocol version stays fixed at **1.53.1**, including `x-command-code-version` and lifecycle metadata.
-- A different npm version produces a warning. It never downloads package archives, executes CLI code, or automatically changes the protocol version.
-- Set `CC_CHECK_PROTOCOL_DRIFT=false` or `"checkProtocolDrift": false` in the configuration to disable the registry request completely. A failed check does not prevent the service from starting.
-- Registry checks do not use `CC_UPSTREAM_PROXY`; that setting applies to Command Code upstream traffic.
-- Dynamic model discovery is separate: `CC_USE_PROVIDER_MODELS` controls fetching `/provider/v1/models` from the Command Code API.
-
-Updating compatibility still requires reviewing the upstream protocol and changing this project's Go code.
-
-The upstream repository, ported baseline, file mapping, and synchronization process are recorded in [docs/UPSTREAM.md](docs/UPSTREAM.md). [AGENTS.md](AGENTS.md) points new sessions to these maintenance instructions.
+Back up the data directory as one unit, including **both the database and `master.key`**. Stop the service before a filesystem copy so the database and any WAL files form a consistent snapshot. Restore the directory before starting the replacement instance. Losing `master.key` makes stored upstream credentials unrecoverable; the service refuses to generate a replacement for an existing database. Anyone with both files can decrypt upstream credentials, so protect backups as secrets. Do not share one data directory between running replicas: deployment is a single process with local SQLite and in-memory sessions/rate-limit state.
 
 ## Configuration
-
-The existing JSON configuration keys remain supported. The shipped `configs/config.json` uses port 3050 and leaves `apiKey` empty. The file also supports `modelRefreshIntervalMs` (default `300000`).
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` / `HOST` | `3050` / `0.0.0.0` | Listen port and address |
-| `CC_API_BASE` | `https://api.commandcode.ai` | Command Code upstream URL |
-| `CC_UPSTREAM_PROXY` | empty | Explicit HTTP proxy for upstream requests; HTTPS targets use CONNECT |
-| `LOG_FILE` | empty | Optional log file; otherwise stdout |
-| `LOG_LEVEL` | `info` | Log verbosity: `info`, `warn`, or `error` |
-| `CC_CHECK_PROTOCOL_DRIFT` | `true` | Check npm metadata and warn about protocol drift |
-| `CC_USE_PROVIDER_MODELS` | `true` | Dynamically retrieve provider models |
+| `CC_GATEWAY_ENABLED` | `true` | Account pooling and management UI |
+| `CC_DATA_DIR` | `data` | Persistent SQLite/encryption-key directory |
+| `CC_WEB_DIR` | `web/dist` | Built frontend assets |
+| `CC_ADMIN_PASSWORD` | unset | Initial password for username `admin`; otherwise create the administrator in the web UI |
+| `CC_API_BASE` | `https://api.commandcode.ai` | Upstream generation/usage API URL |
+| `CC_UPSTREAM_PROXY` | unset | Explicit HTTP proxy for Command Code requests; HTTPS uses CONNECT |
+| `LOG_FILE` / `LOG_LEVEL` | stdout / `info` | Log file and `info`, `warn`, or `error` verbosity |
+| `CC_CHECK_PROTOCOL_DRIFT` | `true` | Warn if npm CLI version differs from fixed protocol |
+| `CC_USE_PROVIDER_MODELS` | `true` | Retrieve provider models dynamically |
 | `CMD_ZDR` | off | Set `1` for ZDR-only routing |
-| `CC_CLI_MODE` | `agent` | Upstream envelope mode |
-| `CC_CLI_SESSION_MODE` | `interactive` | Lifecycle metadata mode |
-| `CC_FINGERPRINT_SALT` | empty | Salt for deterministic per-key device fingerprints |
-| `CC_DEVICE_PROJECT_DIR` | built-in Windows project path | Device profile project directory |
-| `CC_EMPTY_SYSTEM_PLACEHOLDER` | `true` | Insert a space when there is no system prompt; `false` disables |
-| `CC_MAX_BODY_MB` | `100` | Maximum request body size in MiB; larger bodies receive 413 |
-| `CC_MAX_INFLIGHT` | `0` | Global in-flight limit; 0 disables, excess requests receive 503 |
-| `CC_STREAM_IDLE_MS` | `30000` | Streaming upstream read idle timeout |
-| `CC_NONSTREAM_IDLE_MS` | `90000` | Non-streaming upstream read idle timeout |
-| `CC_CLIENT_DRAIN_TIMEOUT_MS` | `0` | Optional timeout for blocked downstream writes; 0 disables |
+| `CC_CLI_MODE` / `CC_CLI_SESSION_MODE` | `agent` / `interactive` | Upstream envelope/lifecycle modes |
+| `CC_FINGERPRINT_SALT` | empty | Deterministic per-key fingerprint salt |
+| `CC_DEVICE_PROJECT_DIR` | built-in Windows path | Device profile project directory |
+| `CC_EMPTY_SYSTEM_PLACEHOLDER` | `true` | Insert a space for empty system prompts |
+| `CC_MAX_BODY_MB` | `100` | Request body MiB limit; excess receives 413 |
+| `CC_MAX_INFLIGHT` | `0` | Global in-flight limit; 0 disables; excess receives 503 |
+| `CC_STREAM_IDLE_MS` | `30000` | Streaming upstream read-idle timeout |
+| `CC_NONSTREAM_IDLE_MS` | `90000` | Non-streaming upstream read-idle timeout |
+| `CC_CLIENT_DRAIN_TIMEOUT_MS` | `0` | Downstream write timeout; 0 disables |
 | `CC_KEEPALIVE_TIMEOUT_MS` | `65000` | HTTP keep-alive idle timeout |
 
-`PROJECT_SLUG` / `projectSlug` are retained as configuration inputs for compatibility; the protocol's project header is derived from the device project directory to match `config.workingDir`.
+Pool strategy, retries, refresh interval, cooldown, affinity, and log retention are persisted in SQLite and managed in the UI. JSON configuration also accepts `gatewayEnabled`, `dataDir`, `webDir`, and `modelRefreshIntervalMs` (provider-model cache interval; default `300000`). The legacy `apiKey` file field is unused. `PROJECT_SLUG` / `projectSlug` remain accepted, while the protocol project header is derived from the device project directory.
 
-## API and protocol behavior
+### Compatibility mode
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /v1/chat/completions` | OpenAI Chat Completions, streaming and non-streaming |
-| `POST /v1/responses` | OpenAI Responses, streaming and non-streaming |
-| `POST /v1/messages` | Anthropic Messages, streaming and non-streaming |
-| `GET /v1/models` | OpenAI-style model list |
-| `GET /health` | Local health check, no API key required |
-| `GET /` | Alias for the local health check |
+Set `CC_GATEWAY_ENABLED=false` for the previous stateless proxy behavior. API callers then supply their own upstream `user_...` keys; management UI/APIs and pooled client quotas are disabled, and `/` is again a health-check alias. `/health` exists in both modes. Upstream session, fingerprint, and protocol conversion behavior remains available.
 
-Point an OpenAI-compatible client at `http://localhost:3050/v1`; Anthropic-compatible clients use `http://localhost:3050` as their base URL. The proxy translates text, reasoning, tools, tool results, images, usage, and finish events to each interface. Upstream generation requests use the CLI envelope with `config`, `memory`, `taste`, `skills`, `permissionMode`, `threadId`, `mode`, `promptCache`, and `params`.
+## Protocol compatibility and npm checks
 
-Each key has an independent session. Device fingerprints are derived deterministically from the key and configured salt, so the same key retains the same device identity across restarts and instances. Fingerprint registration and lifecycle metadata use the same device profile and fixed protocol version. Request logs avoid API key values.
+This remains a Go port of `MAXeaglet/commandcode-proxy`. The Command Code protocol is fixed at **1.53.1**, including headers and lifecycle metadata. The original project queried `https://registry.npmjs.org/command-code/latest` at startup and every 24 hours; the Go service preserves that notification with a 10-second timeout.
 
-Responses is stateless: `previous_response_id` and `store=true` return 400; send the full history each turn. Its text, reasoning, and function-call conversion follows the original implementation; `input_image` and file input are not yet supported. Use Chat Completions or Messages for images. Messages thinking signatures retain the original synthetic format for display compatibility and cannot be used for official Anthropic signature verification.
+A differing npm version only produces a warning. The runtime does not download package archives, execute the CLI, or automatically change protocol behavior. `CC_CHECK_PROTOCOL_DRIFT=false` disables the registry request; a failed check does not prevent startup. Registry checks do not use `CC_UPSTREAM_PROXY`. Frontend `npm ci` during development/Docker builds is separate from this runtime metadata check.
 
-Invalid JSON, missing/invalid credentials, oversized bodies, upstream errors, empty output, interrupted streams, and concurrency limits return structured errors. A stream ending without a `finish` event is an error. Context/output limits and `pause_turn` finish reasons are preserved rather than reported as successful `stop` events. Once SSE headers are sent, errors are delivered in the stream.
+Each upstream key has an independent session and deterministic device fingerprint. Responses is stateless: `previous_response_id` and `store=true` return 400; provide full history each turn. Responses image/file input is unsupported; use Chat Completions or Messages for images. Messages thinking signatures retain the original synthetic format and cannot verify official Anthropic signatures.
 
-## Deployment notes
+Idle timeouts reset when upstream data arrives; they are not total request deadlines. A stream ending without a finish event is an error; after SSE starts, errors are sent in the stream. `/health` checks the local process, not upstream credentials, quota, or remote availability.
 
-Upstream idle timers reset when new data arrives; they are not total request deadlines. Increase `CC_STREAM_IDLE_MS` for models that spend a long time reasoning before returning a chunk. A slow client applies backpressure to upstream reads. `CC_CLIENT_DRAIN_TIMEOUT_MS` can bound time spent on blocked downstream writes.
-
-Set both request-size and concurrency limits for the deployment's available memory, and configure the reverse proxy accordingly. The old Node.js RSS measurements do not describe this Go implementation. Keep the reverse proxy's upstream keep-alive timeout below `CC_KEEPALIVE_TIMEOUT_MS`, turn off response buffering for SSE, and allow a read timeout longer than the proxy's upstream idle timer. `/health` and `/` remain available when the in-flight limit is reached.
+Upstream changes must be reviewed and ported into Go. [docs/UPSTREAM.md](docs/UPSTREAM.md) records the actual ported baseline and sync procedure. npm metadata does not establish whether the upstream Git repository has been synchronized.
 
 ## Development and verification
 
 ```text
-cmd/commandcode-proxy/  Command entry point and flags
-internal/config/       Configuration loading and its Go tests
-internal/proxy/        Proxy implementation and its Go tests
+cmd/commandcode-proxy/  Program entry point and flags
+internal/config/       File/environment configuration
+internal/proxy/        Protocol conversion, upstream transport, routing
+internal/gateway/      Admin API, account pool, quotas, SQLite storage
+internal/usage/        Defensive account/credit/usage normalization
+internal/webui/        Static frontend serving
+web/                   React, shadcn/ui, Tailwind CSS and frontend tests
 configs/config.json    Default runtime configuration
-tests/integration/     Optional Node.js HTTP regression suite
+tests/integration/     Node.js HTTP regression suite with local mocks
 docs/UPSTREAM.md       Upstream baseline and maintenance process
 .github/workflows/     Verification and image publishing
 ```
 
-The root keeps module metadata, Docker deployment files, READMEs, and maintenance instructions. The replaced JavaScript server is available in Git history; Node.js files under `tests/integration` are retained as development tests.
-
 ```bash
+npm --prefix web ci
+npm --prefix web run build
 go test ./...
 go vet ./...
-go test -race ./...
-```
-
-The race detector needs a supported platform and C compiler. The retained black-box HTTP regression suite uses Node.js only as a development test runner and mock upstream; it starts the compiled Go binary and makes no Command Code or npm registry requests:
-
-```bash
 go build -o bin/commandcode-proxy ./cmd/commandcode-proxy
 node --test tests/integration/*.test.mjs
 ```
 
-On Windows, build `bin/commandcode-proxy.exe`. Set `CC_TEST_BINARY` to test another executable. No `npm install` is required. CI checks Go tests, the race detector, these regressions, and Docker build/start/health behavior.
+Use `bin/commandcode-proxy.exe` on Windows. The black-box tests use local mock servers and do not need real credentials. `go test -race ./...` additionally requires a supported platform and C compiler. Docker runtime checks require a working Docker engine; configuring a CI check does not mean it has run locally.
 
-This project is unofficial and is not affiliated with Command Code. Use it in accordance with the upstream service's terms.
+This project is unofficial and is not affiliated with Command Code.

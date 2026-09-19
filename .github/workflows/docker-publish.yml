@@ -29,6 +29,20 @@ jobs:
           go test -race ./...
           go vet ./...
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify management UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          npm exec -- vitest run
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

@@ -1,0 +1,199 @@
+.search-input {
+  position: relative;
+  min-width: 0;
+}
+.search-input > svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.search-input input {
+  padding-left: 36px;
+}
+.result-count {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.quota-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 22px;
+}
+.quota-row [data-slot="progress"] {
+  height: 4px;
+  background: #343840;
+  border-radius: 3px;
+}
+.quota-row [data-slot="progress-indicator"] {
+  background: #8ccb9f;
+  border-radius: 3px;
+}
+.quota-warning [data-slot="progress-indicator"] {
+  background: var(--warning-text);
+}
+.quota-danger [data-slot="progress-indicator"] {
+  background: var(--error-text);
+}
+.quota-row .quota-unknown {
+  background: repeating-linear-gradient(110deg, #292c32 0 4px, #363942 4px 8px);
+}
+.quota-compact {
+  margin: 0;
+  gap: 6px;
+  min-width: 0;
+}
+.quota-compact-heading {
+  display: grid;
+  grid-template-columns: minmax(66px, 1fr) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.quota-compact-label {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: #b4b7c0;
+  white-space: nowrap;
+}
+.quota-compact-amount {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.quota-compact strong {
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 50px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.quota-compact strong small {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-left: 4px;
+}
+.quota-compact:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.estimate-tag {
+  border: 1px solid #454953;
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 13px;
+  margin-left: 5px;
+  font-size: 8px;
+  color: #a1a6b0;
+  font-weight: 400;
+}
+[data-slot="table-container"] {
+  scrollbar-width: thin;
+}
+[data-slot="table-head"] {
+  background: #1d1f23;
+  color: #9096a2;
+  font-weight: 500;
+  font-size: 11px;
+  height: 42px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+[data-slot="table-cell"] {
+  padding: 16px 18px;
+  font-size: 12px;
+}
+[data-slot="table-row"] {
+  border-color: #2b2d34;
+}
+[data-slot="table-body"] [data-slot="table-row"]:hover {
+  background: #202329;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pagination > div > span {
+  margin-right: 10px;
+}
+.pagination button {
+  height: 28px;
+  width: 28px;
+}
+.privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #878e9a;
+  margin-top: 18px;
+}
+.token-reveal {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 18px;
+  background: var(--surface-low);
+}
+.token-reveal code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--primary);
+  line-height: 1.8;
+  padding-bottom: 18px;
+}
+.card-description {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.7;
+  margin-top: 5px;
+}
+.code-block {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #111215;
+}
+.code-block > button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  font-size: 11px;
+  height: 27px;
+  background: var(--muted);
+}
+.code-block pre {
+  font-size: 12px;
+  line-height: 1.9;
+  color: #b8c7be;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 48px 20px 20px;
+}
+.panel-loading {
+  padding: 24px;
+}

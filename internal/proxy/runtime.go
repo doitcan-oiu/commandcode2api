@@ -39,6 +39,13 @@ func (p *Proxy) Run(ctx context.Context) error {
 	})
 	backgroundDone := make(chan struct{})
 	go func() { defer close(backgroundDone); p.background(ctx) }()
+	managerDone := make(chan struct{})
+	go func() {
+		defer close(managerDone)
+		if p.manager != nil {
+			p.manager.Run(ctx)
+		}
+	}()
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -53,6 +60,7 @@ func (p *Proxy) Run(ctx context.Context) error {
 	cancel()
 	<-shutdownDone
 	<-backgroundDone
+	<-managerDone
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

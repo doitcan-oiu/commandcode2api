@@ -24,6 +24,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build management UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Frontend tests
+        working-directory: web
+        run: npm exec -- vitest run
       - name: Go tests and vet
         shell: bash
         run: |
@@ -49,17 +59,43 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build local source in Docker
         run: docker build -t commandcode-proxy:ci .
-      - name: Start as non-root and check health
+      - name: Start as non-root and verify UI and persistent data
         shell: bash
         run: |
           test "$(docker image inspect --format '{{.Config.User}}' commandcode-proxy:ci)" = '65532:65532'
-          docker run --detach --name cc-proxy-ci --env CC_CHECK_PROTOCOL_DRIFT=false commandcode-proxy:ci
-          for attempt in {1..20}; do
-            if docker exec cc-proxy-ci /app/commandcode-proxy -healthcheck; then exit 0; fi
-            sleep 1
-          done
-          docker logs cc-proxy-ci
-          exit 1
+          docker volume create cc-proxy-ci-data
+          wait_ready() {
+            for attempt in {1..30}; do
+              if docker exec cc-proxy-ci /app/commandcode-proxy -healthcheck; then return 0; fi
+              sleep 1
+            done
+            docker logs cc-proxy-ci
+            return 1
+          }
+          docker run --detach --name cc-proxy-ci \
+            --publish 127.0.0.1:13050:3050 \
+            --volume cc-proxy-ci-data:/app/data \
+            --env CC_CHECK_PROTOCOL_DRIFT=false \
+            --env CC_ADMIN_PASSWORD=ci-only-initial-password \
+            commandcode-proxy:ci
+          wait_ready
+          curl --fail --silent http://127.0.0.1:13050/ | grep -qi '<!doctype html>'
+          curl --fail --silent http://127.0.0.1:13050/api/admin/session | grep -q '"setupRequired":false'
+          docker cp cc-proxy-ci:/app/data/master.key /tmp/cc-proxy-ci-master.key
+          test "$(wc -c < /tmp/cc-proxy-ci-master.key)" -eq 32
+          docker stop cc-proxy-ci
+          docker rm cc-proxy-ci
+          docker run --detach --name cc-proxy-ci \
+            --publish 127.0.0.1:13050:3050 \
+            --volume cc-proxy-ci-data:/app/data \
+            --env CC_CHECK_PROTOCOL_DRIFT=false \
+            commandcode-proxy:ci
+          wait_ready
+          curl --fail --silent http://127.0.0.1:13050/api/admin/session | grep -q '"setupRequired":false'
+          docker cp cc-proxy-ci:/app/data/master.key /tmp/cc-proxy-ci-restored.key
+          cmp /tmp/cc-proxy-ci-master.key /tmp/cc-proxy-ci-restored.key
       - name: Cleanup
         if: always()
-        run: docker rm -f cc-proxy-ci || true
+        run: |
+          docker rm -f cc-proxy-ci || true
+          docker volume rm cc-proxy-ci-data || true

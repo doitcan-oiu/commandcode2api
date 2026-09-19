@@ -63,6 +63,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer p.Close()
+	if cfg.GatewayEnabled {
+		if err = p.EnableGateway(); err != nil {
+			logger.Print(err)
+			os.Exit(1)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err = p.Run(ctx); err != nil {

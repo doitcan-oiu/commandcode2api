@@ -1,0 +1,465 @@
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(310px, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.dashboard-traffic {
+  min-width: 0;
+}
+.period-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+.traffic-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 26px;
+  gap: 24px;
+}
+.traffic-metrics > button {
+  text-align: left;
+  position: relative;
+  padding: 12px 0 20px;
+  border-bottom: 2px solid var(--border);
+  min-width: 0;
+}
+.traffic-metrics > button > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-bottom: 12px;
+}
+.traffic-metrics > button strong {
+  display: inline-block;
+  font-size: 34px;
+  letter-spacing: -1.1px;
+  line-height: 1;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.traffic-metrics > button small {
+  color: #777e8b;
+  font-size: 10px;
+  display: block;
+  margin-top: 8px;
+}
+.traffic-metrics > button[aria-pressed="true"] {
+  border-color: var(--primary);
+}
+.traffic-metrics > button[aria-pressed="true"] strong {
+  color: var(--primary);
+}
+.traffic-metrics > button:hover > span {
+  color: var(--foreground);
+}
+.traffic-metrics > button:not([aria-pressed="true"]) svg {
+  visibility: hidden;
+}
+.traffic-chart {
+  height: 270px;
+  margin: 20px 14px 10px;
+}
+.traffic-foot {
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  padding: 16px 26px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  flex-wrap: wrap;
+}
+.traffic-foot > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.traffic-foot b {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.traffic-foot > span:last-child {
+  margin-left: auto;
+}
+.dashboard-operations {
+  align-self: stretch;
+  padding-bottom: 22px;
+  display: flex;
+  flex-direction: column;
+}
+.resource-numbers {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 12px;
+  padding: 6px 24px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.resource-numbers span {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  display: block;
+  margin-bottom: 10px;
+}
+.resource-numbers strong {
+  font-size: 27px;
+  line-height: 1;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.resource-numbers small {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.attention-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 12px;
+}
+.attention-heading h3 {
+  font-size: 12px;
+  font-weight: 500;
+}
+.attention-heading > span {
+  font-size: 10px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 5px 24px 22px;
+}
+.attention-list > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.attention-list > div > svg {
+  color: var(--warning-text);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.attention-list > div > div {
+  min-width: 0;
+}
+.attention-list strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.attention-list p {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attention-clear {
+  padding: 18px 24px 30px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+.attention-clear svg {
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+.attention-clear strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.attention-clear p {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.attention-error {
+  padding: 20px 24px;
+  font-size: 12px;
+  color: var(--error-text);
+}
+.attention-error button {
+  margin-top: 12px;
+}
+.dashboard-operations > button {
+  width: calc(100% - 48px);
+  margin: auto 24px 0;
+}
+.activity-feed {
+  padding: 0 26px 8px;
+}
+.activity-entry {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.activity-glyph {
+  height: 32px;
+  width: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.activity-glyph.success {
+  background: var(--success-bg);
+  color: var(--primary);
+}
+.activity-glyph.error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+.activity-route {
+  flex: 1;
+  min-width: 0;
+}
+.activity-route > strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-route > span {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.activity-route svg {
+  flex-shrink: 0;
+}
+.activity-measures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.activity-measures > span:last-child {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.activity-entry > time {
+  font-size: 10px;
+  color: #89919d;
+  width: 56px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.dashboard-connect {
+  align-self: stretch;
+}
+.connect-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 4px 26px 26px;
+  list-style: none;
+}
+.connect-steps > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.connect-steps > li > span {
+  color: #78838a;
+  font-family: monospace;
+  font-size: 10px;
+  padding-top: 3px;
+}
+.connect-steps > li > div {
+  min-width: 0;
+  flex: 1;
+}
+.connect-steps h3 {
+  font-size: 13px;
+  font-weight: 500;
+}
+.connect-steps p {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+.connect-steps [data-variant="ghost"] {
+  padding-left: 0;
+  color: var(--primary);
+  font-size: 11px;
+  margin-top: 5px;
+  height: 27px;
+}
+.connect-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.connect-endpoint code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--surface-low);
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 5px;
+  flex: 1;
+}
+.connect-endpoint button {
+  height: 30px;
+  font-size: 11px;
+  padding: 0 7px;
+  flex-shrink: 0;
+}
+@media (max-width: 1150px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(0, 1.6fr) minmax(290px, 1fr);
+    gap: 18px;
+  }
+  .activity-entry > time {
+    display: none;
+  }
+  .traffic-foot {
+    gap: 14px;
+  }
+  .traffic-foot > span:last-child {
+    width: 100%;
+    margin: 0;
+  }
+  .traffic-metrics {
+    gap: 16px;
+  }
+  .traffic-metrics > button strong {
+    font-size: 29px;
+  }
+}
+@media (max-width: 900px) {
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-operations {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 18px;
+    padding-bottom: 20px;
+  }
+  .dashboard-operations .panel-heading {
+    grid-column: 1 / -1;
+  }
+  .resource-numbers {
+    align-self: start;
+    border-bottom: 0;
+  }
+  .attention-heading {
+    padding-top: 0;
+  }
+  .attention-list,
+  .attention-clear,
+  .attention-error {
+    grid-column: 2;
+    grid-row: 3 / 5;
+  }
+  .dashboard-operations > button {
+    width: calc(100% - 48px);
+    grid-column: 1;
+    margin-top: 16px;
+  }
+  .activity-entry > time {
+    display: block;
+  }
+}
+@media (max-width: 600px) {
+  .traffic-metrics {
+    padding: 0 20px;
+    gap: 13px;
+  }
+  .traffic-metrics > button strong {
+    font-size: 26px;
+  }
+  .traffic-metrics > button > span {
+    font-size: 10px;
+  }
+  .traffic-metrics > button > span svg {
+    display: none;
+  }
+  .traffic-chart {
+    height: 220px;
+    margin: 14px 5px 10px;
+  }
+  .traffic-foot {
+    padding: 14px 20px;
+    gap: 13px;
+  }
+  .dashboard-operations {
+    display: flex;
+  }
+  .resource-numbers {
+    padding-top: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .attention-heading {
+    padding-top: 20px;
+  }
+  .dashboard-operations > button {
+    margin-top: 0;
+  }
+  .activity-feed {
+    padding: 0 20px 8px;
+  }
+  .activity-entry {
+    gap: 9px;
+  }
+  .activity-entry > time {
+    display: none;
+  }
+  .activity-glyph {
+    display: none;
+  }
+  .activity-route > span {
+    max-width: 190px;
+  }
+  .activity-measures {
+    max-width: 110px;
+  }
+  .activity-measures > span:last-child {
+    font-size: 9px;
+  }
+  .dashboard-activity .panel-heading button {
+    font-size: 11px;
+    gap: 4px;
+    padding: 0;
+  }
+  .connect-steps {
+    padding: 0 20px 24px;
+  }
+}

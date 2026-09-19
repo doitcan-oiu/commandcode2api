@@ -30,6 +30,10 @@ type Config struct {
 	EmptySystemPlaceholder bool          `json:"emptySystemPlaceholder"`
 	UpstreamProxy          string        `json:"upstreamProxy"`
 	CheckProtocolDrift     bool          `json:"checkProtocolDrift"`
+	GatewayEnabled         bool          `json:"gatewayEnabled"`
+	DataDir                string        `json:"dataDir"`
+	WebDir                 string        `json:"webDir"`
+	AdminPassword          string        `json:"-"`
 	MaxBodyBytes           int64         `json:"-"`
 	MaxInflight            int           `json:"-"`
 	StreamIdle             time.Duration `json:"-"`
@@ -40,7 +44,7 @@ type Config struct {
 
 // Default returns the upstream-compatible service defaults.
 func Default() Config {
-	return Config{Port: 3050, Host: "0.0.0.0", APIBase: "https://api.commandcode.ai", ProjectSlug: "cc-proxy", LogLevel: "info", UseProviderModels: true, ModelRefreshIntervalMS: 300000, CLIMode: "agent", CLISessionMode: "interactive", DeviceProjectDir: DefaultProjectDir, DevicePlatform: "win32", EmptySystemPlaceholder: true, CheckProtocolDrift: true, MaxBodyBytes: 100 << 20, StreamIdle: 30 * time.Second, NonstreamIdle: 90 * time.Second, KeepAliveTimeout: 65 * time.Second}
+	return Config{Port: 3050, Host: "0.0.0.0", APIBase: "https://api.commandcode.ai", ProjectSlug: "cc-proxy", LogLevel: "info", UseProviderModels: true, ModelRefreshIntervalMS: 300000, CLIMode: "agent", CLISessionMode: "interactive", DeviceProjectDir: DefaultProjectDir, DevicePlatform: "win32", EmptySystemPlaceholder: true, CheckProtocolDrift: true, GatewayEnabled: true, DataDir: "data", WebDir: "web/dist", MaxBodyBytes: 100 << 20, StreamIdle: 30 * time.Second, NonstreamIdle: 90 * time.Second, KeepAliveTimeout: 65 * time.Second}
 }
 
 // Load applies the optional JSON file followed by environment overrides.
@@ -54,12 +58,12 @@ func Load(path string) (Config, error) {
 	} else if !os.IsNotExist(err) {
 		return c, err
 	}
-	for name, dst := range map[string]*string{"HOST": &c.Host, "CC_API_BASE": &c.APIBase, "PROJECT_SLUG": &c.ProjectSlug, "LOG_FILE": &c.LogFile, "LOG_LEVEL": &c.LogLevel, "CC_FINGERPRINT_SALT": &c.FingerprintSalt, "CC_DEVICE_PROJECT_DIR": &c.DeviceProjectDir, "CC_CLI_MODE": &c.CLIMode, "CC_CLI_SESSION_MODE": &c.CLISessionMode, "CC_UPSTREAM_PROXY": &c.UpstreamProxy} {
+	for name, dst := range map[string]*string{"HOST": &c.Host, "CC_API_BASE": &c.APIBase, "PROJECT_SLUG": &c.ProjectSlug, "LOG_FILE": &c.LogFile, "LOG_LEVEL": &c.LogLevel, "CC_FINGERPRINT_SALT": &c.FingerprintSalt, "CC_DEVICE_PROJECT_DIR": &c.DeviceProjectDir, "CC_CLI_MODE": &c.CLIMode, "CC_CLI_SESSION_MODE": &c.CLISessionMode, "CC_UPSTREAM_PROXY": &c.UpstreamProxy, "CC_DATA_DIR": &c.DataDir, "CC_WEB_DIR": &c.WebDir, "CC_ADMIN_PASSWORD": &c.AdminPassword} {
 		if value, ok := os.LookupEnv(name); ok {
 			*dst = value
 		}
 	}
-	for name, dst := range map[string]*bool{"CC_USE_PROVIDER_MODELS": &c.UseProviderModels, "CC_EMPTY_SYSTEM_PLACEHOLDER": &c.EmptySystemPlaceholder, "CC_CHECK_PROTOCOL_DRIFT": &c.CheckProtocolDrift} {
+	for name, dst := range map[string]*bool{"CC_USE_PROVIDER_MODELS": &c.UseProviderModels, "CC_EMPTY_SYSTEM_PLACEHOLDER": &c.EmptySystemPlaceholder, "CC_CHECK_PROTOCOL_DRIFT": &c.CheckProtocolDrift, "CC_GATEWAY_ENABLED": &c.GatewayEnabled} {
 		if value, ok := os.LookupEnv(name); ok {
 			*dst = value != "false" && value != "0"
 		}
@@ -103,6 +107,12 @@ func Load(path string) (Config, error) {
 	}
 	if c.ModelRefreshIntervalMS <= 0 {
 		c.ModelRefreshIntervalMS = 300000
+	}
+	if c.DataDir == "" {
+		c.DataDir = "data"
+	}
+	if c.WebDir == "" {
+		c.WebDir = "web/dist"
 	}
 	return c, nil
 }

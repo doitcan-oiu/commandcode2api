@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"commandcode2api/internal/config"
+	"commandcode2api/internal/gateway"
 )
 
 type keyState struct {
@@ -40,6 +41,9 @@ type Proxy struct {
 	models         map[string]modelEntry
 	inflight       atomic.Int64
 	timeouts       atomic.Int64
+	manager        *gateway.Manager
+	adminHandler   http.Handler
+	webHandler     http.Handler
 }
 
 // New creates a proxy with isolated upstream clients and per-key state.
@@ -88,7 +92,13 @@ func (p *Proxy) log(level, message string, data M) {
 }
 
 // Close releases idle outbound connections after serving has stopped.
-func (p *Proxy) Close() { p.client.CloseIdleConnections(); p.registryClient.CloseIdleConnections() }
+func (p *Proxy) Close() {
+	p.client.CloseIdleConnections()
+	p.registryClient.CloseIdleConnections()
+	if p.manager != nil {
+		_ = p.manager.Close()
+	}
+}
 
 var keyPattern = regexp.MustCompile(`user_[a-zA-Z0-9_-]+`)
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

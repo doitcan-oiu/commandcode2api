@@ -10,4 +10,11 @@ captured-requests/
 /commandcode-proxy
 /commandcode-proxy.exe
 /coverage.out
+/demo/
+/data/
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/.vite/
+/.env
 

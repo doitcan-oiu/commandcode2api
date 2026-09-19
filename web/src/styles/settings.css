@@ -1,0 +1,304 @@
+.settings-workspace {
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr);
+  gap: 42px;
+  align-items: start;
+  max-width: 1240px;
+}
+.settings-navigation {
+  position: sticky;
+  top: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.settings-navigation > button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  text-align: left;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+.settings-navigation > button:hover {
+  background: var(--card);
+}
+.settings-navigation > button[aria-current] {
+  background: var(--card);
+  border-color: var(--border-strong);
+  color: var(--primary);
+}
+.settings-navigation strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.settings-navigation small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
+.settings-nav-note {
+  display: flex;
+  gap: 10px;
+  padding: 24px 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.settings-nav-note > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.settings-content {
+  min-width: 0;
+}
+.configuration-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.configuration-section {
+  padding: 25px 28px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.configuration-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--border);
+}
+.configuration-heading > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--primary);
+  background: var(--success-bg);
+  border: 1px solid #33483b;
+  border-radius: 7px;
+}
+.configuration-heading h2 {
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 1.6;
+}
+.configuration-heading p {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 5px;
+  line-height: 1.8;
+}
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 24px;
+  align-items: center;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child {
+  border-bottom: 0;
+}
+.setting-row label {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+.setting-row p {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.8;
+  margin-top: 6px;
+  max-width: 410px;
+}
+.setting-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.setting-control [data-slot="select-trigger"] {
+  width: 100%;
+}
+.input-unit {
+  width: 145px;
+  position: relative;
+}
+.input-unit input {
+  padding-right: 35px;
+  font-variant-numeric: tabular-nums;
+}
+.input-unit > span {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.settings-savebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0 0;
+}
+.settings-savebar > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.connection-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.connection-guide .configuration-section {
+  padding-bottom: 26px;
+}
+.connection-guide .configuration-heading {
+  margin-bottom: 22px;
+}
+.endpoint-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.endpoint-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-low);
+  min-width: 0;
+}
+.endpoint-row > div {
+  min-width: 0;
+}
+.endpoint-row small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  margin-bottom: 8px;
+}
+.endpoint-row code {
+  display: block;
+  font-size: 12px;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+.endpoint-row > button {
+  flex-shrink: 0;
+}
+.connection-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--text-secondary);
+}
+.connection-hint > svg {
+  flex-shrink: 0;
+  color: var(--primary);
+  margin-top: 4px;
+}
+@media (max-width: 1100px) {
+  .settings-workspace {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 26px;
+  }
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr) 175px;
+    gap: 20px;
+  }
+  .endpoint-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 750px) {
+  .settings-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+  .settings-navigation {
+    position: static;
+    flex-direction: row;
+    gap: 7px;
+  }
+  .settings-navigation > button {
+    flex: 1;
+    padding: 12px 10px;
+    justify-content: center;
+    gap: 7px;
+  }
+  .settings-navigation strong {
+    font-size: 12px;
+  }
+  .settings-navigation small,
+  .settings-nav-note {
+    display: none;
+  }
+  .configuration-section {
+    padding: 22px 20px 6px;
+  }
+  .configuration-heading {
+    gap: 12px;
+  }
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr) 145px;
+    gap: 14px;
+  }
+  .settings-savebar {
+    flex-wrap: wrap;
+  }
+  .settings-savebar > button {
+    margin-left: auto;
+  }
+}
+@media (max-width: 450px) {
+  .settings-navigation > button > svg {
+    display: none;
+  }
+  .setting-row {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 20px 0;
+  }
+  .setting-control {
+    justify-content: flex-start;
+  }
+  .setting-control > input {
+    width: 100%;
+  }
+  .setting-control [data-slot="select-trigger"] {
+    width: 100%;
+  }
+  .input-unit {
+    width: 100%;
+  }
+  .configuration-heading p {
+    font-size: 10px;
+  }
+  .settings-savebar > span {
+    font-size: 10px;
+  }
+}

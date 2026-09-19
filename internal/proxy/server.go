@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"commandcode2api/internal/gateway"
 )
 
 var errIdle = errors.New("upstream read idle timeout")
@@ -55,6 +57,18 @@ func sendAPIError(w http.ResponseWriter, protocol string, e *APIError) {
 	sendJSON(w, e.Status, body)
 }
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if p.manager != nil && strings.HasPrefix(r.URL.Path, "/api/admin/") {
+		p.adminHandler.ServeHTTP(w, r)
+		return
+	}
+	if p.manager != nil && r.URL.Path != "/health" && !strings.HasPrefix(r.URL.Path, "/v1/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		p.webHandler.ServeHTTP(w, r)
+		return
+	}
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "*")
@@ -76,9 +90,35 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer p.inflight.Add(-1)
 	}
 	if r.URL.Path == "/v1/models" && r.Method == http.MethodGet {
-		ids := p.fetchModels(r.Context(), getAPIKey(r.Header))
+		key := getAPIKey(r.Header)
+		var allowedModels []string
+		var modelsLease *gateway.Lease
+		if p.manager != nil {
+			client, err := p.manager.Authenticate(credentialFromHeaders(r.Header))
+			if err != nil {
+				sendAPIError(w, "chat", gatewayError(err))
+				return
+			}
+			allowedModels = client.Models
+			lease, err := p.manager.Select("", "", nil)
+			if err != nil {
+				sendAPIError(w, "chat", gatewayError(err))
+				return
+			}
+			defer lease.Finish(499, 0) // Listing models must not change account health.
+			modelsLease = lease
+			key = lease.Key
+		}
+		ids := p.fetchModels(r.Context(), key)
+		if modelsLease != nil {
+			modelsLease.Finish(499, 0)
+			ids = p.manager.FilterModels(ids)
+		}
 		data := make([]any, 0, len(ids))
 		for _, id := range ids {
+			if !modelAllowed(allowedModels, id) {
+				continue
+			}
 			data = append(data, M{"id": id, "object": "model", "created": time.Now().Unix(), "owned_by": "command-code"})
 		}
 		sendJSON(w, 200, M{"object": "list", "data": data})
@@ -120,7 +160,7 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 		return
 	}
 	key := getAPIKey(r.Header)
-	if key == "" {
+	if p.manager == nil && key == "" {
 		kind := "authentication_error"
 		if protocol == "chat" {
 			kind = "auth_error"
@@ -152,6 +192,90 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 		}
 		chat["model"] = model
 	}
+	p.generate(w, r, protocol, input, chat, key, model, stream)
+}
+
+// Each retry obtains a new account. A committed SSE response is never replayed.
+func (p *Proxy) generate(w http.ResponseWriter, r *http.Request, protocol string, input, chat M, key, model string, stream bool) {
+	start := time.Now()
+	record := gateway.Record{ID: "req_" + newID(), Model: model, Protocol: protocol, Stream: stream, CreatedAt: start.UnixMilli(), Status: 499}
+	w.Header().Set("X-Request-Id", record.ID)
+	var permit *gateway.Permit
+	attempts := 1
+	if p.manager != nil {
+		var err error
+		permit, err = p.manager.Authorize(credentialFromHeaders(r.Header), model)
+		if err != nil {
+			sendAPIError(w, protocol, gatewayError(err))
+			return
+		}
+		defer func() { record.LatencyMS = time.Since(start).Milliseconds(); permit.Finish(record) }()
+		attempts += p.manager.Settings().MaxRetries
+	}
+	excluded := map[string]bool{}
+	var last *APIError
+	for i := 0; i < attempts; i++ {
+		if r.Context().Err() != nil {
+			return
+		}
+		var lease *gateway.Lease
+		headers := r.Header
+		if p.manager != nil {
+			var err error
+			lease, err = p.manager.Select(model, affinitySession(r.Header, chat, permit.ClientID), excluded)
+			if err != nil {
+				if last == nil {
+					last = gatewayError(err)
+				}
+				break
+			}
+			excluded[lease.AccountID] = true
+			key = lease.Key
+			record.AccountID, record.AccountName = lease.AccountID, lease.AccountName
+			sessionInput := r.Header
+			if requestedSession(r.Header, chat) == "" {
+				sessionInput = r.Header.Clone()
+				sessionInput.Set("X-Session-Id", p.sessionID(key, http.Header{}, ""))
+			}
+			headers = scopedSessionHeaders(sessionInput, chat, permit.ClientID, lease.AccountID)
+		}
+		record.Attempts++
+		outcome := p.generationAttempt(w, r, protocol, input, chat, key, model, stream, headers)
+		record.InputTokens += outcome.inputTokens
+		record.OutputTokens += outcome.outputTokens
+		record.Status = outcome.status
+		if lease != nil {
+			lease.Finish(outcome.upstreamStatus, outcome.retryAfter)
+		}
+		if outcome.err == nil || outcome.started || outcome.status == 499 {
+			return
+		}
+		last = outcome.err
+		if !retryable(outcome.upstreamStatus) {
+			break
+		}
+	}
+	if last != nil {
+		record.Status = last.Status
+		// A rejected upstream credential is a pool failure, not a bad client token.
+		if p.manager != nil && last.Status == 401 {
+			last = &APIError{Status: 503, Type: "temporarily_unavailable", Message: "Upstream accounts rejected authentication", RetryAfter: 5}
+			record.Status = 503
+		}
+		sendAPIError(w, protocol, last)
+	}
+}
+
+type attemptResult struct {
+	err                       *APIError
+	status, upstreamStatus    int
+	started                   bool
+	inputTokens, outputTokens int64
+	retryAfter                time.Duration
+}
+
+func (p *Proxy) generationAttempt(w http.ResponseWriter, r *http.Request, protocol string, input, chat M, key, model string, stream bool, headers http.Header) (out attemptResult) {
+	out.status, out.upstreamStatus = 499, 499
 	id := "chatcmpl-" + newID()[:12]
 	if protocol == "messages" {
 		id = "msg_" + strings.ReplaceAll(newID(), "-", "")
@@ -160,9 +284,24 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 		id = "resp_" + strings.ReplaceAll(newID(), "-", "")
 	}
 	translator := NewTranslator(protocol, model, id, time.Now().Unix(), input)
+	defer func() {
+		in, output, _, _, _ := translator.tokenCounts()
+		out.inputTokens, out.outputTokens = int64(in), int64(output)
+		if out.err != nil {
+			out.err.Message = strings.ReplaceAll(out.err.Message, key, "[redacted]")
+			out.err.Code = strings.ReplaceAll(out.err.Code, key, "[redacted]")
+			out.status = out.err.Status
+			if out.upstreamStatus == 499 {
+				out.upstreamStatus = out.err.Status
+			}
+			if out.retryAfter == 0 {
+				out.retryAfter = time.Duration(out.err.RetryAfter) * time.Second
+			}
+		}
+	}()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if err = p.ensureInitialized(ctx, key); err != nil {
+	if err := p.ensureInitialized(ctx, key); err != nil {
 		return
 	}
 	idleTimeout := p.cfg.NonstreamIdle
@@ -171,7 +310,7 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 	}
 	headerExpired := make(chan struct{})
 	timer := time.AfterFunc(idleTimeout, func() { cancel(); close(headerExpired) })
-	upstream, err := p.forward(ctx, buildCCRequest(chat, p.cfg), key, r.Header, str(chat["prompt_cache_key"]))
+	upstream, err := p.forward(ctx, buildCCRequest(chat, p.cfg), key, headers, str(chat["prompt_cache_key"]))
 	headerTimeout := !timer.Stop()
 	if headerTimeout {
 		<-headerExpired
@@ -189,7 +328,7 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 			e = p.timeoutError()
 		}
 		p.log("warn", "Upstream request failed", M{"path": r.URL.Path, "timeout": headerTimeout})
-		sendAPIError(w, protocol, e)
+		out.err, out.upstreamStatus = e, 502
 		return
 	}
 	defer upstream.Body.Close()
@@ -197,8 +336,12 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 	if upstream.StatusCode < 200 || upstream.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(reader, 1<<20))
 		e := mapCCError(upstream.StatusCode, string(data))
-		p.log("warn", "CC API error", M{"path": r.URL.Path, "status": upstream.StatusCode, "code": e.Code})
-		sendAPIError(w, protocol, e)
+		p.log("warn", "CC API error", M{"path": r.URL.Path, "status": upstream.StatusCode})
+		out.err, out.upstreamStatus = e, upstream.StatusCode
+		out.retryAfter = parseRetryAfter(upstream.Header.Get("Retry-After"))
+		if out.retryAfter > 0 {
+			e.RetryAfter = max(1, int(out.retryAfter.Seconds()))
+		}
 		return
 	}
 	started := false
@@ -220,6 +363,7 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 			w.Header().Set("X-Accel-Buffering", "no")
 			w.WriteHeader(200)
 			started = true
+			out.started = true
 		}
 		for _, event := range events {
 			if _, e := io.WriteString(w, event); e != nil {
@@ -267,14 +411,19 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 		if stream && started {
 			_ = writeEvents(translator.Fail(e.Message))
 		} else {
-			sendAPIError(w, protocol, e)
+			out.err = e
 		}
+		out.err, out.upstreamStatus = e, 502
 		return
 	}
 	if stream {
+		if translator.Error != nil {
+			translator.Error.Message = strings.ReplaceAll(translator.Error.Message, key, "[redacted]")
+			translator.Error.Code = strings.ReplaceAll(translator.Error.Code, key, "[redacted]")
+		}
 		events := translator.Finish()
 		if translator.Error != nil && !started {
-			sendAPIError(w, protocol, translator.Error)
+			out.err = translator.Error
 			return
 		}
 		if err = writeEvents(events); err != nil {
@@ -283,14 +432,18 @@ func (p *Proxy) handleGeneration(w http.ResponseWriter, r *http.Request, protoco
 	} else {
 		result, e := translator.Result()
 		if e != nil {
-			sendAPIError(w, protocol, e)
+			out.err = e
 			return
 		}
 		sendJSON(w, 200, result)
 	}
 	if translator.Error == nil {
 		p.timeouts.Store(0)
+		out.status, out.upstreamStatus = 200, 200
+	} else {
+		out.err = translator.Error
 	}
+	return
 }
 
 func (p *Proxy) timeoutError() *APIError {

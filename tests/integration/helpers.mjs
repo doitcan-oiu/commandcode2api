@@ -114,6 +114,7 @@ export async function startProxy({ upstreamPort, env = {}, cwd } = {}) {
       CC_API_BASE: 'http://127.0.0.1:' + upstreamPort,
       CC_USE_PROVIDER_MODELS: 'false',   // 不访问 /provider/v1/models
       CC_CHECK_PROTOCOL_DRIFT: 'false', // 不访问 npm registry
+      CC_GATEWAY_ENABLED: 'false', // 这里验证原有协议；聚合调度由 Go 集成测试覆盖
       ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
