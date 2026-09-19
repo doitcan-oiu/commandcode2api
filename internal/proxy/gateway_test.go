@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -246,8 +247,59 @@ func TestGatewayScopesUpstreamSessionByClientAndAccount(t *testing.T) {
 	if a == b || a == c || !uuidPattern.MatchString(a) || a != scopedSessionHeaders(h, nil, "clientA", "accountA").Get("X-Session-Id") {
 		t.Fatal("session isolation failed")
 	}
+	strictUUID := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	for _, session := range []string{a, b, c, scopedSessionHeaders(http.Header{"X-Session-Id": {"fixture-session"}}, nil, "fixture-client", "fixture-account").Get("X-Session-Id")} {
+		if !strictUUID.MatchString(session) {
+			t.Errorf("upstream rejects session with invalid UUID version or variant: %s", session)
+		}
+	}
+	if h.Get("X-Session-Id") != "12345678-session" {
+		t.Fatal("scoping changed the client's request headers")
+	}
 	if affinitySession(http.Header{}, nil, "clientA") != "" {
 		t.Fatal("requests without a session must balance")
+	}
+}
+
+func TestGatewayThreadIDPassesUpstreamUUIDValidation(t *testing.T) {
+	strictUUID := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	var calls atomic.Int32
+	p, cookie := gatewayFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body M
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		threadID := str(body["threadId"])
+		if !strictUUID.MatchString(threadID) || threadID != r.Header.Get("X-Session-Id") {
+			w.WriteHeader(400)
+			fmt.Fprint(w, `{"error":{"code":"BAD_REQUEST","message":"Validation error: Invalid UUID at threadId"}}`)
+			return
+		}
+		fmt.Fprintln(w, `{"type":"text-delta","text":"valid session"}`)
+		fmt.Fprintln(w, testFinish)
+	})
+	token := seedPool(t, p, cookie, nil)
+	for _, protocol := range []struct{ path, body string }{
+		{"/v1/chat/completions", testChat},
+		{"/v1/messages", testChat},
+		{"/v1/responses", `{"model":"m","input":"hi"}`},
+	} {
+		for _, stream := range []bool{false, true} {
+			body := protocol.body
+			if stream {
+				body = body[:len(body)-1] + `,"stream":true}`
+			}
+			w := gatewayPost(p, token, protocol.path, body)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), "valid session") {
+				t.Errorf("%s stream=%v rejected: %d %s", protocol.path, stream, w.Code, w.Body)
+			}
+		}
+	}
+	if calls.Load() != 6 {
+		t.Fatalf("unexpected retries: %d requests", calls.Load())
 	}
 }
 

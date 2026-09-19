@@ -93,6 +93,10 @@ func affinitySession(h http.Header, chat M, clientID string) string {
 func scopedSessionHeaders(h http.Header, chat M, clientID, accountID string) http.Header {
 	copy := h.Clone()
 	sum := sha256.Sum256([]byte(clientID + "\x00" + accountID + "\x00" + requestedSession(h, chat)))
+	// The upstream validates threadId as a UUID, including its version and
+	// variant bits. Formatting an unrestricted hash as 8-4-4-4-12 is not enough.
+	sum[6] = sum[6]&0x0f | 0x40
+	sum[8] = sum[8]&0x3f | 0x80
 	copy.Set("X-Session-Id", fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16]))
 	return copy
 }
