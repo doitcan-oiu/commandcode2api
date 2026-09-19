@@ -3,17 +3,15 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { mkdtempSync, copyFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const REPO = dirname(fileURLToPath(import.meta.url)).replace(/[/\\]test$/, '');
+export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 // ── 挂起保护 ──────────────────────────────────────────────
-// 不能用 --test-timeout：Node 18 没有该选项（20.11 才加入），加了会让
-// engines 下限直接跑不起来。改用启动一个 unref 的定时器，进程若因泄漏
-// 的 socket / 未 await 的句柄而无法退出，到点强制退出并说明原因。
+// 进程若因泄漏的 socket / 未 await 的句柄而无法退出，到点强制退出并说明原因。
 // 正常结束时定时器被 unref，不阻止退出。
 const HANG_GUARD_MS = Number(process.env.CC_TEST_HANG_GUARD_MS ?? 120000);
 const hangGuard = setTimeout(() => {
@@ -92,36 +90,50 @@ export async function startMockUpstream(opts = {}) {
     generateCount: () => seen.filter(s => s.url === '/alpha/generate').length };
 }
 
-/** 在临时 cwd 中启动代理（复刻真实部署：proxy.mjs 与 config.json 同目录）。 */
+/** 在临时 cwd 中启动预编译 Go 代理；Node 仅用于这些开发回归测试。 */
 export async function startProxy({ upstreamPort, env = {}, cwd } = {}) {
+  const binary = resolve(REPO, process.env.CC_TEST_BINARY ||
+    join('bin', process.platform === 'win32' ? 'commandcode-proxy.exe' : 'commandcode-proxy'));
+  if (!existsSync(binary)) {
+    throw new Error('Build the Go proxy before running the black-box tests: ' +
+      'go build -o bin/' + (process.platform === 'win32' ? 'commandcode-proxy.exe' : 'commandcode-proxy') + ' ./cmd/commandcode-proxy');
+  }
   const port = await allocPort();
   const logs = [];
   // 自建的临时工作目录用完必须删；调用方传了 cwd 则由调用方负责。
   const ownWorkdir = cwd === undefined;
   const workdir = cwd ?? mkdtempSync(join(tmpdir(), 'ccp-test-'));
-  copyFileSync(join(REPO, 'proxy.mjs'), join(workdir, 'proxy.mjs'));
-  if (!existsSync(join(workdir, 'config.json'))) {
-    copyFileSync(join(REPO, 'config.json'), join(workdir, 'config.json'));
+  const configFile = join(workdir, 'configs', 'config.json');
+  if (!existsSync(configFile)) {
+    mkdirSync(dirname(configFile), { recursive: true });
+    copyFileSync(join(REPO, 'configs', 'config.json'), configFile);
   }
-  const child = spawn(process.execPath, ['proxy.mjs'], {
+  const child = spawn(binary, [], {
     cwd: workdir,
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1',
       CC_API_BASE: 'http://127.0.0.1:' + upstreamPort,
       CC_USE_PROVIDER_MODELS: 'false',   // 不访问 /provider/v1/models
+      CC_CHECK_PROTOCOL_DRIFT: 'false', // 不访问 npm registry
       ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  let spawnError;
+  child.once('error', e => { spawnError = e; });
   child.stdout.on('data', d => logs.push(d.toString()));
   child.stderr.on('data', d => logs.push(d.toString()));
 
   const base = 'http://127.0.0.1:' + port;
   let up = false;
   for (let i = 0; i < 80; i++) {
-    if (child.exitCode !== null) break;
+    if (child.exitCode !== null || spawnError) break;
     try { const r = await fetch(base + '/health'); if (r.ok) { up = true; break; } } catch {}
     await sleep(125);
   }
-  if (!up) { child.kill(); throw new Error('proxy did not start:\n' + logs.join('')); }
+  if (!up) {
+    child.kill();
+    if (ownWorkdir) rmSync(workdir, { recursive: true, force: true });
+    throw new Error('proxy did not start:\n' + (spawnError?.message || '') + logs.join(''));
+  }
 
   return {
     port, base, child, logs: () => logs.join(''),
@@ -131,15 +143,16 @@ export async function startProxy({ upstreamPort, env = {}, cwd } = {}) {
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
     kill: () => new Promise(r => {
-      child.once('exit', () => {
+      let timer;
+      const finish = () => {
+        clearTimeout(timer);
         if (ownWorkdir) { try { rmSync(workdir, { recursive: true, force: true }); } catch {} }
         r();
-      });
+      };
+      if (child.exitCode !== null || child.signalCode !== null) { finish(); return; }
+      child.once('exit', finish);
+      timer = setTimeout(() => { child.kill('SIGKILL'); finish(); }, 2000);
       child.kill();
-      setTimeout(() => {
-        if (ownWorkdir) { try { rmSync(workdir, { recursive: true, force: true }); } catch {} }
-        r();
-      }, 2000);
     }),
   };
 }
@@ -147,6 +160,12 @@ export async function startProxy({ upstreamPort, env = {}, cwd } = {}) {
 /** 一次性搭好 mock 上游 + 代理。 */
 export async function setup(opts = {}) {
   const mock = await startMockUpstream(opts);
-  const proxy = await startProxy({ upstreamPort: mock.port, env: opts.env, cwd: opts.cwd });
+  let proxy;
+  try {
+    proxy = await startProxy({ upstreamPort: mock.port, env: opts.env, cwd: opts.cwd });
+  } catch (error) {
+    await mock.close();
+    throw error;
+  }
   return { mock, proxy, async close() { await proxy.kill(); await mock.close(); } };
 }

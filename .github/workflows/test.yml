@@ -1,0 +1,65 @@
+name: Test Go proxy
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Go tests and vet
+        shell: bash
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      - name: Build binary for HTTP regressions
+        shell: bash
+        run: |
+          binary=bin/commandcode-proxy
+          if [ "$RUNNER_OS" = "Windows" ]; then binary="$binary.exe"; fi
+          go build -trimpath -o "$binary" ./cmd/commandcode-proxy
+      - name: HTTP regressions against the Go binary
+        shell: bash
+        run: node --test tests/integration/*.test.mjs
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build local source in Docker
+        run: docker build -t commandcode-proxy:ci .
+      - name: Start as non-root and check health
+        shell: bash
+        run: |
+          test "$(docker image inspect --format '{{.Config.User}}' commandcode-proxy:ci)" = '65532:65532'
+          docker run --detach --name cc-proxy-ci --env CC_CHECK_PROTOCOL_DRIFT=false commandcode-proxy:ci
+          for attempt in {1..20}; do
+            if docker exec cc-proxy-ci /app/commandcode-proxy -healthcheck; then exit 0; fi
+            sleep 1
+          done
+          docker logs cc-proxy-ci
+          exit 1
+      - name: Cleanup
+        if: always()
+        run: docker rm -f cc-proxy-ci || true

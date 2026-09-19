@@ -1,16 +1,13 @@
-version: "3.9"
-
 services:
   proxy:
-    build: .
+    build:
+      context: .
     ports:
       - "${PROXY_PORT:-3050}:3050"
     environment:
       PORT: "3050"
+      HOST: "0.0.0.0"
+      CC_CHECK_PROTOCOL_DRIFT: "${CC_CHECK_PROTOCOL_DRIFT:-true}"
+    volumes:
+      - ./configs/config.json:/app/configs/config.json:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "http://127.0.0.1:3050/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s

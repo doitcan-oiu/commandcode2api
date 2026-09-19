@@ -1,9 +1,11 @@
-node_modules/
-.git/
-*.log
-.commandcode/
-.opencode/
-.omo/
-temp/
-README*.md
-AGENTS.md
+# Only local Go source and the default configuration belong in the build context.
+*
+!Dockerfile
+!go.mod
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!configs/
+!configs/config.json
+**/*_test.go
